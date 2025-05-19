@@ -2,7 +2,7 @@
   "name": "ProbeOps Dev",
   "dockerComposeFile": "../docker-compose.yml",
   "service": "backend",
-  "workspaceFolder": "/workspace/ProbeNetworkTools",
+  "workspaceFolder": "/workspaces/ProbeNetworkTools",
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "customizations": {
     "vscode": {
