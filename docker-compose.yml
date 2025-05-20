@@ -1,18 +1,40 @@
-version: '3.8'
+version: "3.9"
+
 services:
-  backend:
-    build: ./backend
+  db:
+    image: postgres:13
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: probeops
+    ports:
+      - "5432:5432"
     volumes:
-      - ./backend:/app
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend-v2
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-
-  probe-node:
-    build: ./probe
-    volumes:
-      - ./probe:/app
     environment:
-      - PROBEOPS_BACKEND_URL=https://probeops.com
-      - PROBEOPS_API_KEY=sample-api-key
+      - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/probeops
+    depends_on:
+      - db
+    volumes:                              # ✅ Optional but helpful
+      - ./backend-v2/alembic:/app/alembic
+      - ./backend-v2/alembic.ini:/app/alembic.ini
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@probeops.com
+      PGADMIN_DEFAULT_PASSWORD: probeops123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
