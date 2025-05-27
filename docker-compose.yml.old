@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:13
@@ -19,29 +21,20 @@ services:
       - DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/probeops
     depends_on:
       - db
-    volumes:
+    volumes:                              # ✅ Optional but helpful
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
 
-  probe-node:
-    build: ./probe_node
-    depends_on:
-      - backend
-    # No ports exposed, safe for dev
-    volumes:
-      - ./probe_node:/app
-    # Add env_file or environment here if needed
-
-  frontend:
-    build: ./frontend
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@probeops.com
+      PGADMIN_DEFAULT_PASSWORD: probeops123
     ports:
-      - "5173:5173"
-    env_file:
-      - ./frontend/.env.frontend
+      - "5050:80"
     depends_on:
-      - backend
-    # volumes:
-    #   - ./frontend:/app   # Only if you want live code sync (dev only)
+      - db
 
 volumes:
   postgres_data:

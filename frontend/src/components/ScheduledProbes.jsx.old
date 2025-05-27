@@ -1,0 +1,564 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField, Table, TableBody, TableCell,
+  TableHead, TableRow, IconButton, Select, MenuItem, FormControlLabel, Switch, Snackbar, Chip, CircularProgress, Box, Tooltip, Checkbox, Typography
+} from '@mui/material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import { getScheduledProbes, createScheduledProbe, updateScheduledProbe, deleteScheduledProbe, toggleScheduledProbe } from '../services/api';
+
+const intervalOptions = [
+  { value: 5, label: 'Every 5 minutes' },
+  { value: 15, label: 'Every 15 minutes' },
+  { value: 60, label: 'Every 1 hour' },
+  { value: 1440, label: 'Every 1 day' }
+];
+
+const toolOptions = [
+  { value: 'ping', label: 'Ping' },
+  { value: 'traceroute', label: 'Traceroute' },
+  { value: 'dns', label: 'DNS Lookup' },
+  { value: 'rdns', label: 'Reverse DNS' },
+  { value: 'whois', label: 'Whois Lookup' },
+  { value: 'curl', label: 'Curl' },
+  { value: 'nmap', label: 'Port Check (Nmap)' }
+];
+
+function getTimeSince(dateString) {
+  if (!dateString) return '—';
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+const ScheduledProbes = () => {
+  const [probes, setProbes] = useState([]);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedProbe, setSelectedProbe] = useState(null);
+  const [form, setForm] = useState({
+    name: '',
+    tool: 'ping',
+    target: '',
+    interval_minutes: 5,
+    is_active: true,
+    alert_on_failure: false,
+    alert_on_threshold: false,
+    threshold_value: null,
+    description: ''
+  });
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [loading, setLoading] = useState(false);         // global loading for fetching probes
+  const [actionLoading, setActionLoading] = useState({}); // probeId: true/false for per-probe actions
+  const [selected, setSelected] = useState([]); // for bulk actions
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Fetch all probes on mount
+  useEffect(() => {
+    fetchProbes();
+    // eslint-disable-next-line
+  }, []);
+
+  // Reset selectedProbe if probes list changes
+  useEffect(() => {
+    setSelectedProbe(null);
+    setSelected([]); // clear bulk selection on reload
+  }, [probes]);
+
+  const fetchProbes = async () => {
+    setLoading(true);
+    try {
+      const res = await getScheduledProbes();
+      const sorted = [...(res || [])].sort((a, b) => b.id - a.id); // Stable order: newest first
+      setProbes(sorted);
+    } catch (err) {
+      setSnackbar({ open: true, message: `Error: ${err.message}`, severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenDialog = (probe = null) => {
+    if (probe && probe.id) {
+      setEditMode(true);
+      setSelectedProbe(probe);
+      setForm({
+        name: probe.name,
+        tool: probe.tool,
+        target: probe.target,
+        interval_minutes: probe.interval_minutes,
+        is_active: probe.is_active,
+        alert_on_failure: probe.alert_on_failure,
+        alert_on_threshold: probe.alert_on_threshold ?? false,
+        threshold_value: probe.threshold_value ?? null,
+        description: probe.description || ''
+      });
+      setOpenDialog(true);
+    } else if (!probe) {
+      setEditMode(false);
+      setSelectedProbe(null);
+      setForm({
+        name: '',
+        tool: 'ping',
+        target: '',
+        interval_minutes: 5,
+        is_active: true,
+        alert_on_failure: false,
+        alert_on_threshold: false,
+        threshold_value: null,
+        description: ''
+      });
+      setOpenDialog(true);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setSelectedProbe(null);
+  };
+
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  // Per-probe action spinner helpers
+  const setProbeActionLoading = (id, val) => setActionLoading((prev) => ({ ...prev, [id]: val }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      ...form,
+      interval_minutes: parseInt(form.interval_minutes, 10),
+      alert_on_threshold: !!form.alert_on_threshold,
+      threshold_value: form.threshold_value !== undefined ? form.threshold_value : null
+    };
+    setLoading(true);
+    try {
+      if (editMode && selectedProbe && selectedProbe.id) {
+        setProbeActionLoading(selectedProbe.id, true);
+        await updateScheduledProbe(selectedProbe.id, payload);
+        setOpenDialog(false);
+        await fetchProbes();
+        setSnackbar({ open: true, message: 'Scheduled probe updated', severity: 'success' });
+        setProbeActionLoading(selectedProbe.id, false);
+      } else {
+        await createScheduledProbe(payload);
+        setOpenDialog(false);
+        await fetchProbes();
+        setSnackbar({ open: true, message: 'Scheduled probe created', severity: 'success' });
+      }
+    } catch (err) {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Unknown error";
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
+    setLoading(false);
+  };
+
+  const handleDelete = async () => {
+    if (!selectedProbe || !selectedProbe.id) {
+      setSnackbar({ open: true, message: 'Invalid probe selection. Please try again.', severity: 'error' });
+      setOpenDeleteDialog(false);
+      return;
+    }
+    setProbeActionLoading(selectedProbe.id, true);
+    try {
+      await deleteScheduledProbe(selectedProbe.id);
+      await fetchProbes();
+      setSnackbar({ open: true, message: 'Scheduled probe deleted', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: `Error: ${err.message}`, severity: 'error' });
+    } finally {
+      setOpenDeleteDialog(false);
+      setSelectedProbe(null);
+      setProbeActionLoading(selectedProbe.id, false);
+    }
+  };
+
+  const handleToggle = async (id) => {
+    if (!id) {
+      setSnackbar({ open: true, message: 'Invalid probe selection. Please try again.', severity: 'error' });
+      return;
+    }
+    setProbeActionLoading(id, true);
+    try {
+      await toggleScheduledProbe(id);
+      await fetchProbes();
+      setSnackbar({ open: true, message: 'Probe status updated', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: `Error: ${err.message}`, severity: 'error' });
+    }
+    setProbeActionLoading(id, false);
+  };
+
+  // Bulk Actions
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelected(probes.map((probe) => probe.id));
+    } else {
+      setSelected([]);
+    }
+  };
+
+  const handleSelectOne = (id) => {
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDisable = async () => {
+    setBulkLoading(true);
+    try {
+      for (let id of selected) {
+        const probe = probes.find((p) => p.id === id);
+        if (probe && probe.is_active) {
+          await toggleScheduledProbe(id);
+        }
+      }
+      await fetchProbes();
+      setSnackbar({ open: true, message: 'Selected probes disabled.', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: 'Bulk disable failed: ' + err.message, severity: 'error' });
+    }
+    setBulkLoading(false);
+    setSelected([]);
+  };
+
+  const handleBulkEnable = async () => {
+    setBulkLoading(true);
+    try {
+      for (let id of selected) {
+        const probe = probes.find((p) => p.id === id);
+        if (probe && !probe.is_active) {
+          await toggleScheduledProbe(id);
+        }
+      }
+      await fetchProbes();
+      setSnackbar({ open: true, message: 'Selected probes enabled.', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: 'Bulk enable failed: ' + err.message, severity: 'error' });
+    }
+    setBulkLoading(false);
+    setSelected([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete ${selected.length} probe(s)?`)) return;
+    setBulkLoading(true);
+    try {
+      for (let id of selected) {
+        await deleteScheduledProbe(id);
+      }
+      await fetchProbes();
+      setSnackbar({ open: true, message: 'Selected probes deleted.', severity: 'success' });
+    } catch (err) {
+      setSnackbar({ open: true, message: 'Bulk delete failed: ' + err.message, severity: 'error' });
+    }
+    setBulkLoading(false);
+    setSelected([]);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', marginBottom: 2, justifyContent: 'space-between' }}>
+        <Typography variant="h5" sx={{ fontWeight: 500 }}>Scheduled Probes</Typography>
+        <Box>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+            disabled={loading || bulkLoading}
+            sx={{ mr: 2 }}
+          >
+            New Scheduled Probe
+          </Button>
+          <IconButton color="primary" onClick={fetchProbes} disabled={loading || bulkLoading}>
+            <RefreshIcon />
+          </IconButton>
+        </Box>
+      </Box>
+      <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+        <Button
+          variant="outlined"
+          color="warning"
+          onClick={handleBulkDisable}
+          disabled={selected.length === 0 || bulkLoading}
+        >Disable Selected</Button>
+        <Button
+          variant="outlined"
+          color="success"
+          onClick={handleBulkEnable}
+          disabled={selected.length === 0 || bulkLoading}
+        >Enable Selected</Button>
+        <Button
+          variant="outlined"
+          color="error"
+          onClick={handleBulkDelete}
+          disabled={selected.length === 0 || bulkLoading}
+        >Delete Selected</Button>
+        {bulkLoading && <CircularProgress size={22} sx={{ ml: 1 }} />}
+      </Box>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell padding="checkbox">
+              <Checkbox
+                indeterminate={selected.length > 0 && selected.length < probes.length}
+                checked={probes.length > 0 && selected.length === probes.length}
+                onChange={handleSelectAll}
+                inputProps={{ 'aria-label': 'select all probes' }}
+                disabled={loading || bulkLoading}
+              />
+            </TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Tool</TableCell>
+            <TableCell>Target</TableCell>
+            <TableCell>Interval</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell>Last Run</TableCell>
+            <TableCell>Alert on Failure</TableCell>
+            <TableCell>Last Result</TableCell>
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {probes.map((probe) => {
+            const hasResults = probe.probe_results && probe.probe_results.length > 0;
+            const lastResult = hasResults
+              ? probe.probe_results.reduce((a, b) => new Date(a.created_at) > new Date(b.created_at) ? a : b)
+              : null;
+            return (
+              <TableRow key={probe.id} selected={selected.includes(probe.id)}>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={selected.includes(probe.id)}
+                    onChange={() => handleSelectOne(probe.id)}
+                    disabled={loading || bulkLoading}
+                  />
+                </TableCell>
+                <TableCell>{probe.name}</TableCell>
+                <TableCell>{toolOptions.find(opt => opt.value === probe.tool)?.label || probe.tool}</TableCell>
+                <TableCell>{probe.target}</TableCell>
+                <TableCell>
+                  {intervalOptions.find(opt => opt.value === probe.interval_minutes)?.label || `${probe.interval_minutes} min`}
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    label={probe.is_active ? "Active" : "Paused"}
+                    color={probe.is_active ? "success" : "default"}
+                    size="small"
+                    style={{ minWidth: 70, textAlign: "center" }}
+                  />
+                </TableCell>
+                <TableCell>
+                  {lastResult
+                    ? (
+                      <Tooltip title={getTimeSince(lastResult.created_at)}>
+                        <span>
+                          {new Date(lastResult.created_at).toLocaleString()}
+                        </span>
+                      </Tooltip>
+                    )
+                    : "—"}
+                </TableCell>
+
+                <TableCell>
+                  {probe.alert_on_failure ? "Yes" : "No"}
+                </TableCell>
+                <TableCell>
+                  {lastResult
+                    ? (
+                        <Chip
+                          label={lastResult.status === 'success' ? 'Success' : (lastResult.status || 'Failure')}
+                          color={lastResult.status === 'success' ? 'success' : 'error'}
+                          size="small"
+                        />
+                    )
+                    : <Chip label="No result" size="small" />}
+                </TableCell>
+                <TableCell>
+                  <IconButton
+                    color="primary"
+                    onClick={() => handleOpenDialog(probe)}
+                    size="small"
+                    disabled={!!actionLoading[probe.id]}
+                  >
+                    {actionLoading[probe.id] ? <CircularProgress size={20} /> : <EditIcon />}
+                  </IconButton>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={probe.is_active}
+                        onChange={() => handleToggle(probe.id)}
+                        color="success"
+                        size="small"
+                        disabled={!!actionLoading[probe.id]}
+                      />
+                    }
+                    label={probe.is_active ? "Active" : "Paused"}
+                    style={{ marginLeft: 8, marginRight: 8 }}
+                  />
+                  <IconButton
+                    color="error"
+                    onClick={() => {
+                      setSelectedProbe(probe);
+                      setOpenDeleteDialog(true);
+                    }}
+                    size="small"
+                    disabled={!!actionLoading[probe.id]}
+                  >
+                    {actionLoading[probe.id] ? <CircularProgress size={20} /> : <DeleteIcon />}
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+          {probes.length === 0 && !loading && (
+            <TableRow>
+              <TableCell colSpan={10} align="center">
+                No scheduled probes
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>{editMode ? "Edit Scheduled Probe" : "New Scheduled Probe"}</DialogTitle>
+        <DialogContent>
+          <form onSubmit={handleSubmit}>
+            <TextField
+              label="Name"
+              name="name"
+              value={form.name}
+              onChange={handleChange}
+              fullWidth
+              margin="normal"
+              required
+              disabled={loading}
+            />
+            <Select
+              label="Tool"
+              name="tool"
+              value={form.tool}
+              onChange={handleChange}
+              fullWidth
+              style={{ marginBottom: 16 }}
+              disabled={loading}
+            >
+              {toolOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </Select>
+            <TextField
+              label="Target"
+              name="target"
+              value={form.target}
+              onChange={handleChange}
+              fullWidth
+              margin="normal"
+              required
+              disabled={loading}
+            />
+            <Select
+              label="Interval"
+              name="interval_minutes"
+              value={form.interval_minutes}
+              onChange={handleChange}
+              fullWidth
+              style={{ marginBottom: 16 }}
+              disabled={loading}
+            >
+              {intervalOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </Select>
+            <TextField
+              label="Description"
+              name="description"
+              value={form.description}
+              onChange={handleChange}
+              fullWidth
+              margin="normal"
+              disabled={loading}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={form.is_active}
+                  onChange={e => setForm(prev => ({ ...prev, is_active: e.target.checked }))}
+                  name="is_active"
+                  color="primary"
+                  disabled={loading}
+                />
+              }
+              label="Active"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={form.alert_on_failure}
+                  onChange={e => setForm(prev => ({ ...prev, alert_on_failure: e.target.checked }))}
+                  name="alert_on_failure"
+                  color="secondary"
+                  disabled={loading}
+                />
+              }
+              label="Alert on Failure"
+            />
+            <DialogActions>
+              <Button onClick={handleCloseDialog} disabled={loading}>Cancel</Button>
+              <Button type="submit" color="primary" variant="contained" disabled={loading}>
+                {editMode ? "Update" : "Create"}
+              </Button>
+            </DialogActions>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={openDeleteDialog}
+        onClose={() => setOpenDeleteDialog(false)}
+      >
+        <DialogTitle>Delete Scheduled Probe</DialogTitle>
+        <DialogContent>
+          Are you sure you want to delete scheduled probe <b>{selectedProbe?.name || ''}</b>?
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDeleteDialog(false)} disabled={!!actionLoading[selectedProbe?.id]}>Cancel</Button>
+          <Button onClick={handleDelete} color="error" variant="contained" disabled={!!actionLoading[selectedProbe?.id] || !selectedProbe || !selectedProbe.id}>
+            {actionLoading[selectedProbe?.id] ? <CircularProgress size={20} /> : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for feedback */}
+      <Snackbar
+        open={snackbar.open}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        autoHideDuration={3000}
+        message={snackbar.message}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      />
+    </div>
+  );
+};
+
+export default ScheduledProbes;

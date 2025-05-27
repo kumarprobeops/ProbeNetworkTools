@@ -1,0 +1,65 @@
+# Python virtual environments
+venv/
+backend/venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environment files
+.env
+.env.*
+
+# VS Code, PyCharm, and IDE configs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# MacOS junk
+.DS_Store
+
+# Node/npm
+node_modules/
+frontend/node_modules/
+
+# npm/yarn logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React/Vite/Next.js build outputs
+frontend/build/
+frontend/dist/
+build/
+dist/
+*.log
+
+# Dependency directories and lockfiles (optional)
+package-lock.json
+yarn.lock
+
+# Coverage and test results
+coverage/
+htmlcov/
+*.cover
+*.py,cover
+
+# Docker stuff (if you use Docker volumes)
+**/.docker/
+**/docker-compose.override.yml
+
+# Database and other generated files
+*.sqlite3
+*.db
+
+# Ignore OS/system files
+Thumbs.db
+ehthumbs.db
+
+# Ignore any secrets or temp files
+secrets.*
+*.bak
+*.tmp
